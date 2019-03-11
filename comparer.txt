@@ -6385,6 +6385,7 @@ public class MenuItemViewModel : Common.Models.Menu
             	await App.Navigator.PushAsync(new SetupPage());
             	break;
         	default:
+		MainViewModel.GetInstance().Login = new LoginViewModel();
             	Application.Current.MainPage = new NavigationPage(new LoginPage());
             	break;
     	}
@@ -7421,6 +7422,8 @@ default:
 	Settings.Token = string.Empty;
 	Settings.UserEmail = string.Empty;
 	Settings.UserPassword = string.Empty;
+
+	MainViewModel.GetInstance().Login = new LoginViewModel();
 	Application.Current.MainPage = new NavigationPage(new LoginPage());
 	break;
 
@@ -7507,8 +7510,8 @@ public static class Languages
 
 6.	Implement the interface in iOS in the folder Implementations.
 
-[assembly: Xamarin.Forms.Dependency(typeof(ShopPrep.UIForms.iOS.Implementations.Localize))]
-namespace ShopPrep.UIForms.iOS.Implementations
+[assembly: Xamarin.Forms.Dependency(typeof(Shop.UIForms.iOS.Implementations.Localize))]
+namespace Shop.UIForms.iOS.Implementations
 {
 	using System.Globalization;
 	using System.Threading;
@@ -7608,32 +7611,28 @@ namespace ShopPrep.UIForms.iOS.Implementations
 
 8.	Implement the interface in Android in the folder Implementations.
 
-[assembly: Xamarin.Forms.Dependency(typeof(ShopPrep.UIForms.iOS.Implementations.Localize))]
-namespace ShopPrep.UIForms.iOS.Implementations
+[assembly: Xamarin.Forms.Dependency(typeof(Shop.UIForms.Droid.Implementations.Localize))]
+namespace Shop.UIForms.Droid.Implementations
 {
-	using System.Globalization;
-	using System.Threading;
-	using Foundation;
 	using Helpers;
 	using Interfaces;
+	using System.Globalization;
+	using System.Threading;
 
 	public class Localize : ILocalize
 	{
     	public CultureInfo GetCurrentCultureInfo()
     	{
         	var netLanguage = "en";
-        	if (NSLocale.PreferredLanguages.Length > 0)
-        	{
-            	var pref = NSLocale.PreferredLanguages[0];
-            	netLanguage = iOSToDotnetLanguage(pref);
-        	}
+        	var androidLocale = Java.Util.Locale.Default;
+        	netLanguage = AndroidToDotnetLanguage(androidLocale.ToString().Replace("_", "-"));
         	// this gets called a lot - try/catch can be expensive so consider caching or something
         	System.Globalization.CultureInfo ci = null;
         	try
         	{
             	ci = new System.Globalization.CultureInfo(netLanguage);
         	}
-        	catch (CultureNotFoundException e1)
+        	catch (CultureNotFoundException)
         	{
             	// iOS locale not valid .NET culture (eg. "en-ES" : English in Spain)
             	// fallback to first characters, in this case "en"
@@ -7642,7 +7641,7 @@ namespace ShopPrep.UIForms.iOS.Implementations
                 	var fallback = ToDotnetFallbackLanguage(new PlatformCulture(netLanguage));
                 	ci = new System.Globalization.CultureInfo(fallback);
             	}
-            	catch (CultureNotFoundException e2)
+            	catch (CultureNotFoundException)
             	{
                 	// iOS language not valid .NET culture, falling back to English
                 	ci = new System.Globalization.CultureInfo("en");
@@ -7657,15 +7656,19 @@ namespace ShopPrep.UIForms.iOS.Implementations
         	Thread.CurrentThread.CurrentUICulture = ci;
     	}
 
-    	string iOSToDotnetLanguage(string iOSLanguage)
+    	private string AndroidToDotnetLanguage(string androidLanguage)
     	{
-        	var netLanguage = iOSLanguage;
+        	var netLanguage = androidLanguage;
         	//certain languages need to be converted to CultureInfo equivalent
-        	switch (iOSLanguage)
+        	switch (androidLanguage)
         	{
+            	case "ms-BN":   // "Malaysian (Brunei)" not supported .NET culture
             	case "ms-MY":   // "Malaysian (Malaysia)" not supported .NET culture
             	case "ms-SG":   // "Malaysian (Singapore)" not supported .NET culture
                 	netLanguage = "ms"; // closest supported
+                	break;
+            	case "in-ID":  // "Indonesian (Indonesia)" has different code in  .NET
+                	netLanguage = "id-ID"; // correct code for .NET
                 	break;
             	case "gsw-CH":  // "Schwiizertüütsch (Swiss German)" not supported .NET culture
                 	netLanguage = "de-CH"; // closest supported
@@ -7673,25 +7676,20 @@ namespace ShopPrep.UIForms.iOS.Implementations
                 	// add more application-specific cases here (if required)
                 	// ONLY use cultures that have been tested and known to work
         	}
-
         	return netLanguage;
     	}
 
-    	string ToDotnetFallbackLanguage(PlatformCulture platCulture)
+    	private string ToDotnetFallbackLanguage(PlatformCulture platCulture)
     	{
         	var netLanguage = platCulture.LanguageCode; // use the first part of the identifier (two chars, usually);
         	switch (platCulture.LanguageCode)
         	{
-            	case "pt":
-                	netLanguage = "pt-PT"; // fallback to Portuguese (Portugal)
-                	break;
             	case "gsw":
                 	netLanguage = "de-CH"; // equivalent to German (Switzerland) for this app
                 	break;
                 	// add more application-specific cases here (if required)
                 	// ONLY use cultures that have been tested and known to work
         	}
-
         	return netLanguage;
     	}
 	}
@@ -7707,7 +7705,7 @@ if (string.IsNullOrEmpty(this.Email))
 
 10.	Test it.
 
-11.	Now to translate literals directly in the XAML add the class TranslateExtension:
+11.	Now to translate literals directly in the XAML add the class TranslateExtension in folder Helpers:
 
 using Interfaces;
 using System;
@@ -7721,7 +7719,7 @@ using Xamarin.Forms.Xaml;
 public class TranslateExtension : IMarkupExtension
 {
 	private readonly CultureInfo ci;
-	private const string ResourceId = "ShopPrep.UIForms.Resources.Resource";
+	private const string ResourceId = "Shop.UIForms.Resources.Resource";
 	private static readonly Lazy<ResourceManager> ResMgr =
     	new Lazy<ResourceManager>(() => new ResourceManager(
         	ResourceId,
@@ -7805,13 +7803,20 @@ public static class Languages
 
 if (string.IsNullOrEmpty(this.Email))
 {
-	await Application.Current.MainPage.DisplayAlert(Languages.Error, Languages.EmailMessage, Languages.Accept);
+	await Application.Current.MainPage.DisplayAlert(
+    	Languages.Error,
+    	Languages.EmailMessage,
+    	Languages.Accept);
 	return;
 }
 
 if (string.IsNullOrEmpty(this.Password))
 {
-	await Application.Current.MainPage.DisplayAlert(Languages.Error, Languages.PasswordMessage, Languages.Accept);
+	await Application.Current.MainPage.DisplayAlert(
+    	Languages.Error,
+    	Languages.PasswordMessage,
+    	Languages.Accept);
+    	return;
 	return;
 }
 
@@ -7832,9 +7837,11 @@ var response = await this.apiService.GetTokenAsync(
 
 if (!response.IsSuccess)
 {
-	this.IsRunning = false;
-	this.IsEnabled = true;
-	await Application.Current.MainPage.DisplayAlert(Languages.Error, Languages.EmailOrPasswordIncorrect, Languages.Accept);
+	await Application.Current.MainPage.DisplayAlert(
+    	Languages.Error,
+    	Languages.EmailOrPasswordIncorrect,
+    	Languages.Accept);
+	return;
 	return;
 }
 
@@ -7843,7 +7850,7 @@ if (!response.IsSuccess)
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
          	xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-         	xmlns:i18n="clr-namespace:ShopPrep.UIForms.Helpers"
+         	xmlns:i18n="clr-namespace:Shop.UIForms.Helpers"
          	x:Class="Shop.UIForms.Views.LoginPage"
          	BindingContext="{Binding Main, Source={StaticResource Locator}}"
          	Title="{i18n:Translate Login}">
@@ -7913,13 +7920,17 @@ Acceding To Camera and Gallery in Xamarin Forms
 	</Image.GestureRecognizers>
 </Image>
 
-2.	Add the property in AddProductViewModel:
+2.	Add the attribute and property in AddProductViewModel:
+
+private ImageSource imageSource;
 
 public ImageSource ImageSource
 {
 	get => this.imageSource;
 	set => this.SetValue(ref this.imageSource, value);
 }
+
+And delete the Image property.
 
 3.	And initialize in the constructor:
 
@@ -8047,7 +8058,7 @@ private async void ChangeImage()
 
 12.	Test it.
 Sending the Image to Backend
-1.	In Helpers add the class FilesHelper:
+1.	In Web.Helpers add the class FilesHelper:
 
 using System.IO;
 
@@ -8122,7 +8133,7 @@ public async Task<IActionResult> PostProduct([FromBody] Common.Models.Product pr
 	return Ok(newProduct);
 }
 
-4.	Now in Xamarin Shared project, add the class FilesHelper:
+4.	Now in Xamarin Shared project, add the class FilesHelper in Common.Helpers:
 
 using System.IO;
 
@@ -8161,6 +8172,314 @@ var product = new Product
 6.	Test it locally.
 
 7.	Publish the changes on Azure and make a complete test.
+Register Users From App in Xamarin
+1.	Create the CountriesController in Web.Controllers.API:
+
+using Data;
+using Microsoft.AspNetCore.Mvc;
+
+[Route("api/[Controller]")]
+public class CountriesController : Controller
+{
+	private readonly ICountryRepository countryRepository;
+
+	public CountriesController(ICountryRepository countryRepository)
+	{
+    	this.countryRepository = countryRepository;
+	}
+
+	[HttpGet]
+	public IActionResult GetCountries()
+	{
+    	return Ok(this.countryRepository.GetCountriesWithCities());
+	}
+
+}
+
+2.	Test it locally and then publish in Azure.
+
+3.	Now add the models in Common.Models (user Json2scharp):
+
+using Newtonsoft.Json;
+
+public partial class City
+{
+	[JsonProperty("id")]
+	public long Id { get; set; }
+
+	[JsonProperty("name")]
+	public string Name { get; set; }
+}
+
+And:
+
+using System.Collections.Generic;
+using Newtonsoft.Json;
+
+public class Country
+{
+	[JsonProperty("id")]
+	public long Id { get; set; }
+
+	[JsonProperty("name")]
+	public string Name { get; set; }
+
+	[JsonProperty("cities")]
+	public List<City> Cities { get; set; }
+
+	[JsonProperty("numberCities")]
+	public int NumberCities { get; set; }
+}
+
+4.	Add the RegisterPage:
+
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+         	xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+         	x:Class="Shop.UIForms.Views.RegisterPage"
+         	BindingContext="{Binding Main, Source={StaticResource Locator}}"
+         	Title="Register New User">
+	<ContentPage.Content>
+    	<ScrollView
+        	BindingContext="{Binding Register}">
+        	<StackLayout
+            	Padding="8">
+            	<Grid>
+                	<Grid.ColumnDefinitions>
+                    	<ColumnDefinition Width="*"/>
+                    	<ColumnDefinition Width="2*"/>
+                	</Grid.ColumnDefinitions>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="0"
+                    	Text="First name"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="0"
+                    	Placeholder="Enter your first name..."
+                    	Text="{Binding FirstName}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="1"
+                    	Text="Last name"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="1"
+                    	Placeholder="Enter your last name..."
+                    	Text="{Binding LastName}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="2"
+                    	Text="Email"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="2"
+                    	Keyboard="Email"
+                    	Placeholder="Enter your email..."
+                    	Text="{Binding Email}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="3"
+                    	Text="Country"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Picker
+                    	Grid.Column="1"
+                    	Grid.Row="3"
+                    	ItemsSource="{Binding Countries}"
+                    	SelectedItem="{Binding Country}"
+                    	Title="Select a country...">
+                	</Picker>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="4"
+                    	Text="City"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Picker
+                    	Grid.Column="1"
+                    	Grid.Row="4"
+                    	ItemsSource="{Binding Cities}"
+                    	SelectedItem="{Binding City}"
+                    	Title="Select a city...">
+                	</Picker>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="5"
+                    	Text="Address"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="5"
+                    	Keyboard="Email"
+                    	Placeholder="Enter your address..."
+                    	Text="{Binding Address}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="6"
+                    	Text="Pohone"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="6"
+                    	Keyboard="Email"
+                    	Placeholder="Enter your phone number..."
+                    	Text="{Binding Phone}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="7"
+                    	Text="Password"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="7"
+                    	IsPassword="True"
+                    	Placeholder="Enter your password..."
+                    	Text="{Binding Password}">
+                	</Entry>
+                	<Label
+                    	Grid.Column="0"
+                    	Grid.Row="8"
+                    	Text="Password confirm"
+                    	VerticalOptions="Center">
+                	</Label>
+                	<Entry
+                    	Grid.Column="1"
+                    	Grid.Row="8"
+                    	IsPassword="True"
+                    	Placeholder="Enter your password confirm..."
+                    	Text="{Binding Confirm}">
+                	</Entry>
+            	</Grid>
+            	<ActivityIndicator
+                	IsRunning="{Binding IsRunning}"
+                	VerticalOptions="CenterAndExpand">
+            	</ActivityIndicator>
+            	<Button
+                	BackgroundColor="Navy"
+                	BorderRadius="23"
+                	Command="{Binding RegisterCommand}"
+                	HeightRequest="46"
+                	HorizontalOptions="FillAndExpand"
+                	IsEnabled="{Binding IsEnabled}"
+                	Text="Register New User"
+                	TextColor="White">
+            	</Button>
+        	</StackLayout>
+    	</ScrollView>
+	</ContentPage.Content>
+</ContentPage>
+
+5.	Add the RegisterViewModel:
+
+using System.Collections.ObjectModel;
+using System.Windows.Input;
+using Common.Models;
+using GalaSoft.MvvmLight.Command;
+
+public class RegisterViewModel : BaseViewModel
+{
+	private bool isRunning;
+	private bool isEnabled;
+	private ObservableCollection<Country> countries;
+	private Country country;
+	private ObservableCollection<City> cities;
+	private City city;
+
+	public string FirstName { get; set; }
+
+	public string LastName { get; set; }
+
+	public string Email { get; set; }
+
+	public string Address { get; set; }
+
+	public string Phone { get; set; }
+
+	public string Password { get; set; }
+
+	public string Confirm { get; set; }
+
+	public Country Country
+	{
+    	get => this.country;
+    	set => this.SetValue(ref this.country, value);
+	}
+
+	public City City
+	{
+    	get => this.city;
+    	set => this.SetValue(ref this.city, value);
+	}
+
+	public ObservableCollection<Country> Countries
+	{
+    	get => this.countries;
+    	set => this.SetValue(ref this.countries, value);
+	}
+
+	public ObservableCollection<City> Cities
+	{
+    	get => this.cities;
+    	set => this.SetValue(ref this.cities, value);
+	}
+
+	public bool IsRunning
+	{
+    	get => this.isRunning;
+    	set => this.SetValue(ref this.isRunning, value);
+	}
+
+	public bool IsEnabled
+	{
+    	get => this.isEnabled;
+    	set => this.SetValue(ref this.isEnabled, value);
+	}
+
+	public ICommand RegisterCommand => new RelayCommand(this.Register);
+
+	public RegisterViewModel()
+	{
+    	this.IsEnabled = true;
+	}
+
+	private async void Register()
+	{
+	}
+}
+
+6.	Add the property Register in MainViewModel:
+
+public RegisterViewModel Register { get; set; }
+
+7.	Modify the LoginViewModel:
+
+public ICommand RegisterCommand => new RelayCommand(this.Register);
+…
+private async void Register()
+{
+	MainViewModel.GetInstance().Register = new RegisterViewModel();
+	await Application.Current.MainPage.Navigation.PushAsync(new RegisterPage());
+}
+
+8.	Test it what we do until this moment.
+
+
+
 Starting With Xamarin Android Classic
 1.	In layout folder add the LoginPage:
 
@@ -8218,7 +8537,7 @@ Starting With Xamarin Android Classic
 	</LinearLayout>
 </RelativeLayout>
 
-2.	Add the folder Helpers and inside it, add the DiaglogService:
+9.	Add the folder Helpers and inside it, add the DiaglogService:
 
 using Android.App;
 using Android.Content;
@@ -8239,7 +8558,7 @@ namespace ShopPrep.UIClassic.Android.Helpers
 	}
 }
 
-3.	Add the folder Activities and inside it, add the LoginActivity:
+10.	Add the folder Activities and inside it, add the LoginActivity:
 
 using Android.App;
 using Android.Content;
@@ -8332,11 +8651,11 @@ namespace ShopPrep.UIClassic.Android.Activities
 	}
 }
 
-4.	Delete the MainActivity and original layout.
+11.	Delete the MainActivity and original layout.
 
-5.	Test it.
+12.	Test it.
 
-6.	In layout add the ProductsPage:
+13.	In layout add the ProductsPage:
 
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -8351,7 +8670,7 @@ namespace ShopPrep.UIClassic.Android.Activities
     	android:id="@+id/productsListView" />
 </LinearLayout>
 
-7.	In layout add the ProductRow:
+14.	In layout add the ProductRow:
 
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
@@ -8396,7 +8715,7 @@ namespace ShopPrep.UIClassic.Android.Activities
 	</LinearLayout>
 </LinearLayout>
 
-8.	In folder Helpers add the ImageHelper:
+15.	In folder Helpers add the ImageHelper:
 
 using Android.Graphics;
 using System.Net;
@@ -8423,7 +8742,7 @@ namespace ShopPrep.UIClassic.Android.Helpers
 	}
 }
 
-9.	Create the folder Adapters and inside it add the class ProductsListAdapter:
+16.	Create the folder Adapters and inside it add the class ProductsListAdapter:
 
 using Android.App;
 using Android.Views;
@@ -8474,7 +8793,7 @@ namespace ShopPrep.UIClassic.Android.Adapters
 	}
 }
 
-10.	Modify the LoginActivity:
+17.	Modify the LoginActivity:
 
 this.activityIndicatorProgressBar.Visibility = ViewStates.Gone;
 
@@ -8486,7 +8805,7 @@ intent.PutExtra("token", JsonConvert.SerializeObject(token));
 intent.PutExtra("email", this.emailText.Text);
 this.StartActivity(intent);
 
-11.	In Activities folder add the ProductsActivity:
+18.	In Activities folder add the ProductsActivity:
 
 using Android.App;
 using Android.OS;
@@ -8545,7 +8864,7 @@ namespace ShopPrep.UIClassic.Android.Activities
 	}
 }
 
-12.	Test it.
+19.	Test it.
 Starting With Xamarin iOS Classic
 1.	In classic folder add the Xamarin iOS project ShopPrep.UIClassic.iOS, using single view app template:
 
